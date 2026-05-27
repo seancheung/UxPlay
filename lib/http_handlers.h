@@ -155,6 +155,27 @@ http_handler_stop(raop_conn_t *conn, http_request_t *request, http_response_t *r
     raop->callbacks.on_video_stop(raop->callbacks.cls);
 }
 
+/* handles PUT /photo http requests: the Client pushes a JPEG to display (AirPlay photo /
+   slideshow). Headers: X-Apple-AssetKey (uuid), X-Apple-AssetAction (cacheOnly/displayCached),
+   X-Apple-Transition. Body is the JPEG (empty for displayCached). (android-airplay-server) */
+static void
+http_handler_photo(raop_conn_t *conn, http_request_t *request, http_response_t *response,
+                   char **response_data, int *response_datalen) {
+    raop_t *raop = conn->raop;
+    int datalen = 0;
+    const char *data = http_request_get_data(request, &datalen);
+    const char *asset_key = http_request_get_header(request, "X-Apple-AssetKey");
+    const char *action = http_request_get_header(request, "X-Apple-AssetAction");
+    const char *transition = http_request_get_header(request, "X-Apple-Transition");
+    logger_log(raop->logger, LOGGER_INFO,
+               "client HTTP request PUT /photo: %d bytes assetKey=%s action=%s transition=%s",
+               datalen, asset_key ? asset_key : "", action ? action : "", transition ? transition : "");
+    if (raop->callbacks.on_photo) {
+        raop->callbacks.on_photo(raop->callbacks.cls, data, datalen, asset_key, action, transition);
+    }
+    /* response defaults to 200 OK */
+}
+
 /* handles PUT /setProperty http requests from Client to Server */
 
 static void
@@ -888,10 +909,21 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
     set_start_position_seconds(airplay_video, (float) start_position_seconds);
 
     /* we only support HLS if the playback location is terminated by "/master.m3u8" */
+    /* YouTube uses an HLS master playlist that must be proxied via the fcup reverse channel
+       (Content-Location ends in "/master.m3u8"). Many other apps (e.g. 芒果TV) instead send a
+       directly playable HLS/MP4 URL on a public CDN — hand it straight to the media player,
+       skipping the proxy. (android-airplay-server addition.) */
     const char *uri_suffix = strstr(playback_location, "/master.m3u8");
-    if (!uri_suffix) { 
-        logger_log(raop->logger, LOGGER_ERR, "Content-Location has unsupported form:\n%s\n", playback_location);	    
-        goto play_error;
+    if (!uri_suffix) {
+        logger_log(raop->logger, LOGGER_INFO,
+                   "Direct (non-proxied) playback Content-Location:\n%s", playback_location);
+        set_playback_location(airplay_video, playback_location, strlen(playback_location));
+        raop->callbacks.on_video_play(raop->callbacks.cls, playback_location, start_position_seconds);
+        plist_mem_free(playback_location);
+        if (req_root_node) {
+            plist_free(req_root_node);
+        }
+        return;
     } else {
         size_t len = strlen(get_uri_local_prefix(airplay_video)) + strlen(uri_suffix);
         char *location = (char *) calloc(len + 1, sizeof(char));
