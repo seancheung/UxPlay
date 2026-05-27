@@ -469,6 +469,8 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
         } else if (!strcmp(method, "PUT")) {
             if (!strncmp (url, "/setProperty?", strlen("/setProperty?"))) {
                 handler = &http_handler_set_property;
+            } else if (!strcmp(url, "/photo")) {
+                handler = &http_handler_photo;
             }
         }
     } else if (hls_request) {

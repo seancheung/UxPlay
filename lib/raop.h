@@ -110,6 +110,12 @@ struct raop_callbacks_s {
     void  (*on_video_stop) (void *cls);
     void  (*on_video_acquire_playback_info) (void *cls, playback_info_t *playback_video);
     float  (*on_video_playlist_remove) (void *cls);
+
+    /* AirPlay photo (PUT /photo): data is JPEG bytes (may be empty for displayCached);
+       action is X-Apple-AssetAction (cacheOnly/displayCached/empty), transition is
+       X-Apple-Transition. (android-airplay-server addition.) */
+    void  (*on_photo) (void *cls, const char *data, int datalen, const char *asset_key,
+                       const char *action, const char *transition);
 };
 
 typedef struct raop_callbacks_s raop_callbacks_t;
